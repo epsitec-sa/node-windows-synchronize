@@ -3,6 +3,7 @@
 
 #include <windows.h>
 #include <sddl.h>
+#include <synchapi.h>
 #include <string>
 
 struct MutexHandle
@@ -11,7 +12,7 @@ struct MutexHandle
 };
 
 // string name, string sddl, MutexHandle* mutexHandle -> int
-NAPI_METHOD(CreateMutex)
+NAPI_METHOD(CreateMutexNW)
 {
   int result = 0;
 
@@ -45,7 +46,7 @@ NAPI_METHOD(CreateMutex)
 }
 
 // string name, int mutexAccess, MutexHandle* mutexHandle -> int
-NAPI_METHOD(OpenMutex)
+NAPI_METHOD(OpenMutexNW)
 {
   int result = 0;
 
@@ -55,8 +56,8 @@ NAPI_METHOD(OpenMutex)
   NAPI_ARGV_INT32(mutexAccess, 1)
   NAPI_ARGV_BUFFER_CAST(struct MutexHandle *, mutexHandle, 2)
 
-  mutexHandle->hHandle = OpenMutex(mutexAccess, FALSE, objectNameA);
-  if (mutexHandle->hHandle == NULL)
+  mutexHandle->hMutex = OpenMutex(mutexAccess, FALSE, objectNameA);
+  if (mutexHandle->hMutex == NULL)
   {
     result = GetLastError();
   }
@@ -64,46 +65,49 @@ NAPI_METHOD(OpenMutex)
   NAPI_RETURN_INT32(result)
 }
 
-// SharedMemoryHandle* memoryHandle, byte* data, int dataSize -> int
-NAPI_METHOD(WriteSharedData)
+// MutexHandle* mutexHandle, int waitTimeMs -> int
+NAPI_METHOD(WaitMutex)
 {
   int result = 0;
+  DWORD res = 0;
 
-  NAPI_ARGV(3)
+  NAPI_ARGV(2)
 
-  NAPI_ARGV_BUFFER_CAST(struct SharedMemoryHandle *, memoryHandle, 0)
-  NAPI_ARGV_BUFFER_CAST(char *, data, 1)
-  NAPI_ARGV_INT32(dataSize, 2)
+  NAPI_ARGV_BUFFER_CAST(struct MutexHandle *, mutexHandle, 0)
+  NAPI_ARGV_INT32(waitTimeMs, 1)
 
-  if (dataSize > memoryHandle->size)
+  res = WaitForSingleObject(mutexHandle->hMutex, waitTimeMs);
+  if (res == WAIT_FAILED)
   {
-    result = 1;
-    NAPI_RETURN_INT32(result)
+    result = GetLastError();
   }
-
-  RtlMoveMemory((PVOID)memoryHandle->pBuf, data, dataSize);
+  else if (res == WAIT_TIMEOUT)
+  {
+    result = -1;
+  }
+  else if (res == WAIT_ABANDONED)
+  {
+    result = -2;
+  }
 
   NAPI_RETURN_INT32(result)
 }
 
-// SharedMemoryHandle* memoryHandle, byte* data, int dataSize -> int
-NAPI_METHOD(ReadSharedData)
+// MutexHandle* mutexHandle -> int
+NAPI_METHOD(ReleaseMutexNW)
 {
   int result = 0;
+  DWORD res = 0;
 
-  NAPI_ARGV(3)
+  NAPI_ARGV(1)
 
-  NAPI_ARGV_BUFFER_CAST(struct SharedMemoryHandle *, memoryHandle, 0)
-  NAPI_ARGV_BUFFER_CAST(char *, data, 1)
-  NAPI_ARGV_INT32(dataSize, 2)
+  NAPI_ARGV_BUFFER_CAST(struct MutexHandle *, mutexHandle, 0)
 
-  if (dataSize > memoryHandle->size)
+  res = ReleaseMutex(mutexHandle->hMutex);
+  if (res == 0)
   {
-    result = 1;
-    NAPI_RETURN_INT32(result)
+    result = GetLastError();
   }
-
-  RtlMoveMemory(data, (PVOID)memoryHandle->pBuf, memoryHandle->size);
 
   NAPI_RETURN_INT32(result)
 }
@@ -125,10 +129,10 @@ NAPI_METHOD(CloseMutex)
 
 NAPI_INIT()
 {
-  NAPI_EXPORT_FUNCTION(CreateMutex)
-  NAPI_EXPORT_FUNCTION(OpenMutex)
-  NAPI_EXPORT_FUNCTION(WriteSharedData)
-  NAPI_EXPORT_FUNCTION(ReadSharedData)
+  NAPI_EXPORT_FUNCTION(CreateMutexNW)
+  NAPI_EXPORT_FUNCTION(OpenMutexNW)
+  NAPI_EXPORT_FUNCTION(WaitMutex)
+  NAPI_EXPORT_FUNCTION(ReleaseMutexNW)
   NAPI_EXPORT_FUNCTION(CloseMutex)
 
   NAPI_EXPORT_SIZEOF_STRUCT(MutexHandle)

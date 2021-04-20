@@ -3,7 +3,7 @@ const mutexAddon = require("./build/Release/mutex");
 function createMutex(name, sddlString) {
   const handle = Buffer.alloc(mutexAddon.sizeof_MutexHandle);
 
-  const res = mutexAddon.CreateMutex(name, sddlString || "", handle);
+  const res = mutexAddon.CreateMutexNW(name, sddlString || "", handle);
 
   if (res !== 0) {
     throw `could not create mutex for object ${name}: ${res}`;
@@ -15,7 +15,7 @@ function createMutex(name, sddlString) {
 function openMutex(name, mutexAccess) {
   const handle = Buffer.alloc(mutexAddon.sizeof_MutexHandle);
 
-  const res = mutexAddon.OpenMutex(name, mutexAccess, handle);
+  const res = mutexAddon.OpenMutexNW(name, mutexAccess, handle);
 
   if (res !== 0) {
     throw `could not open mutex for object ${name}: ${res}`;
@@ -24,40 +24,25 @@ function openMutex(name, mutexAccess) {
   return handle;
 }
 
-function writeSharedData(handle, data, encoding) {
-  let buf = null;
+function waitMutex(handle, waitTimeMs) {
+  const res = mutexAddon.WaitMutex(handle, waitTimeMs);
 
-  if (isBuffer(data)) {
-    buf = data;
-  } else if (data && typeof data === "string") {
-    buf = Buffer.from(data, encoding || "utf8");
-  } else {
-    buf = Buffer.from(data);
-  }
-
-  const res = sharedMemoryAddon.WriteSharedData(handle, buf, buf.byteLength);
-
-  if (res === 1) {
-    throw `data size (${data.length()}) exceeded maximum shared memory size`;
+  if (res === -1) {
+    throw `mutex timeout expired`;
+  } else if (res === -2) {
+    // Abandoned, should try to wait again
+    waitMutex(handle, waitTimeMs);
+  } else if (res !== 0) {
+    throw `could not wait for mutex: ${res}`;
   }
 }
 
-function readSharedData(handle, encoding, bufferSize) {
-  const dataSize = bufferSize || sharedMemoryAddon.GetSharedMemorySize(handle);
-  const buf = Buffer.alloc(dataSize);
+function releaseMutex(handle) {
+  const res = mutexAddon.ReleaseMutexNW(handle);
 
-  const res = sharedMemoryAddon.ReadSharedData(handle, buf, dataSize);
-
-  if (res === 1) {
-    throw `data size (${data.length()}) exceeded maximum shared memory size`;
+  if (res !== 0) {
+    throw `could not release mutex: ${res}`;
   }
-
-  if (encoding) {
-    // is a string
-    return buf.toString(encoding).replace(/\0/g, ""); // remove trailing \0 characters
-  }
-
-  return buf;
 }
 
 function closeMutex(handle) {
@@ -67,8 +52,8 @@ function closeMutex(handle) {
 module.exports = {
   createMutex,
   openMutex,
-  writeSharedData,
-  readSharedData,
+  waitMutex,
+  releaseMutex,
   closeMutex,
 
   mutexAccess: {
@@ -77,5 +62,8 @@ module.exports = {
     Synchronize: 0x00100000,
     WriteDac: 0x00040000,
     WriteOwner: 0x00080000,
+  },
+  waitTime: {
+    Infinite: 0xffffffff,
   },
 };
