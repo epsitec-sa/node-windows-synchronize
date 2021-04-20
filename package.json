@@ -9,8 +9,7 @@
   "devDependencies": {
     "mocha": "^2.3.3",
     "napi-macros": "^2.0.0",
-    "node-gyp": "^3.0.3",
-    "node-windows-ipc": "^0.1.0"
+    "node-gyp": "^3.0.3"
   },
   "scripts": {
     "configure": "node-gyp configure",
