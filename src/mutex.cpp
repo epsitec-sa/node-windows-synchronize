@@ -1,113 +1,136 @@
 #include <node_api.h>
+#include <napi-macros.h>
 
 #include <windows.h>
+#include <sddl.h>
 #include <string>
-#include <psapi.h>
 
-// string serviceName, int cmd -> int
-napi_value ExecuteCommand(napi_env env, napi_callback_info info)
+struct MutexHandle
 {
-  napi_status status;
+  HANDLE hMutex;
+};
 
-  size_t argc = 2;
-  napi_value argv[2];
+// string name, string sddl, MutexHandle* mutexHandle -> int
+NAPI_METHOD(CreateMutex)
+{
+  int result = 0;
 
-  napi_value napiResult;
-  int result = 1;
+  NAPI_ARGV(3)
 
-  char serviceNameA[1000];
-  size_t serviceNameARead = 0;
-  int cmd = 0;
+  NAPI_ARGV_UTF8(objectNameA, 1000, 0)
+  NAPI_ARGV_UTF8(sddlStringA, 1000, 1)
+  NAPI_ARGV_BUFFER_CAST(struct MutexHandle *, mutexHandle, 2)
 
-  SC_HANDLE managerHandle;
-  SC_HANDLE serviceHandle;
+  LPSECURITY_ATTRIBUTES pAttributes = NULL;
+  SECURITY_ATTRIBUTES attributes;
 
-  SERVICE_STATUS   controlParms;
-  DWORD retStatus;
-
-
-  status = napi_get_cb_info(env, info, &argc, argv, NULL, NULL);
-
-  if (status != napi_ok) {
-    napi_throw_error(env, NULL, "Failed to parse arguments");
-  }
-
-  status = napi_get_value_string_utf8(env, argv[0], serviceNameA, 1000, &serviceNameARead);
-
-  if (status != napi_ok) {
-    printf("---%d---", (int)status);
-    napi_throw_error(env, NULL, "Invalid serviceName was passed as argument");
-  }
-
-  status = napi_get_value_int32(env, argv[1], &cmd);
-
-  if (status != napi_ok) {
-    printf("---%d---", (int)status);
-    napi_throw_error(env, NULL, "Invalid cmd was passed as argument");
-  }
-
-  managerHandle = OpenSCManager(NULL, NULL, GENERIC_READ);
-  if (managerHandle != NULL)
+  if (strcmp(sddlStringA, "") != 0)
   {
-      serviceHandle = OpenService(managerHandle, serviceNameA, SERVICE_USER_DEFINED_CONTROL | SERVICE_QUERY_STATUS);
-
-      if (serviceHandle != NULL)
-      {
-          retStatus = ControlService(serviceHandle, cmd, &controlParms);
-
-          if (retStatus)
-          {
-              // Get the return code from the service
-              result = (int)controlParms.dwWin32ExitCode;
-          }
-          else
-          {
-              result = -3;
-          }
-
-          CloseServiceHandle(serviceHandle);
-      }
-      else
-      {
-        result = -2;
-      }
-
-      CloseServiceHandle(managerHandle);
+    ZeroMemory(&attributes, sizeof(attributes));
+    attributes.nLength = sizeof(attributes);
+    ConvertStringSecurityDescriptorToSecurityDescriptor(
+      sddlStringA,
+      SDDL_REVISION_1,
+      &attributes.lpSecurityDescriptor,
+      NULL);
   }
-  else
+
+  mutexHandle->hMutex = CreateMutex(pAttributes, FALSE, objectNameA);
+  if (mutexHandle->hMutex == NULL)
   {
-      result = -1;
+    result = GetLastError();
   }
 
-  
-  status = napi_create_int32(env, result, &napiResult);
+  NAPI_RETURN_INT32(result)
+}
 
-  if (status != napi_ok) {
-    printf("---%d---", (int)status);
-    napi_throw_error(env, NULL, "Unable to create return value");
+// string name, int mutexAccess, MutexHandle* mutexHandle -> int
+NAPI_METHOD(OpenMutex)
+{
+  int result = 0;
+
+  NAPI_ARGV(3)
+
+  NAPI_ARGV_UTF8(objectNameA, 1000, 0)
+  NAPI_ARGV_INT32(mutexAccess, 1)
+  NAPI_ARGV_BUFFER_CAST(struct MutexHandle *, mutexHandle, 2)
+
+  mutexHandle->hHandle = OpenMutex(mutexAccess, FALSE, objectNameA);
+  if (mutexHandle->hHandle == NULL)
+  {
+    result = GetLastError();
   }
 
-  return napiResult;
+  NAPI_RETURN_INT32(result)
+}
+
+// SharedMemoryHandle* memoryHandle, byte* data, int dataSize -> int
+NAPI_METHOD(WriteSharedData)
+{
+  int result = 0;
+
+  NAPI_ARGV(3)
+
+  NAPI_ARGV_BUFFER_CAST(struct SharedMemoryHandle *, memoryHandle, 0)
+  NAPI_ARGV_BUFFER_CAST(char *, data, 1)
+  NAPI_ARGV_INT32(dataSize, 2)
+
+  if (dataSize > memoryHandle->size)
+  {
+    result = 1;
+    NAPI_RETURN_INT32(result)
+  }
+
+  RtlMoveMemory((PVOID)memoryHandle->pBuf, data, dataSize);
+
+  NAPI_RETURN_INT32(result)
+}
+
+// SharedMemoryHandle* memoryHandle, byte* data, int dataSize -> int
+NAPI_METHOD(ReadSharedData)
+{
+  int result = 0;
+
+  NAPI_ARGV(3)
+
+  NAPI_ARGV_BUFFER_CAST(struct SharedMemoryHandle *, memoryHandle, 0)
+  NAPI_ARGV_BUFFER_CAST(char *, data, 1)
+  NAPI_ARGV_INT32(dataSize, 2)
+
+  if (dataSize > memoryHandle->size)
+  {
+    result = 1;
+    NAPI_RETURN_INT32(result)
+  }
+
+  RtlMoveMemory(data, (PVOID)memoryHandle->pBuf, memoryHandle->size);
+
+  NAPI_RETURN_INT32(result)
+}
+
+// MutexHandle* mutexHandle -> int
+NAPI_METHOD(CloseMutex)
+{
+  int result = 0;
+
+  NAPI_ARGV(1)
+
+  NAPI_ARGV_BUFFER_CAST(struct MutexHandle *, mutexHandle, 0)
+
+  CloseHandle(mutexHandle->hMutex);
+
+  NAPI_RETURN_INT32(result)
 }
 
 
-napi_value Init(napi_env env, napi_value exports) {
-  napi_status status;
-  napi_value fn;
+NAPI_INIT()
+{
+  NAPI_EXPORT_FUNCTION(CreateMutex)
+  NAPI_EXPORT_FUNCTION(OpenMutex)
+  NAPI_EXPORT_FUNCTION(WriteSharedData)
+  NAPI_EXPORT_FUNCTION(ReadSharedData)
+  NAPI_EXPORT_FUNCTION(CloseMutex)
 
-  status = napi_create_function(env, NULL, 0, ExecuteCommand, NULL, &fn);
-  if (status != napi_ok) {
-    printf("---%d---", (int)status);
-    napi_throw_error(env, NULL, "Unable to wrap ExecuteCommand native function");
-  }
-
-  status = napi_set_named_property(env, exports, "execute_command", fn);
-  if (status != napi_ok) {
-    printf("---%d---", (int)status);
-    napi_throw_error(env, NULL, "Unable to populate execute_command exports");
-  }
-
-  return exports;
+  NAPI_EXPORT_SIZEOF_STRUCT(MutexHandle)
+  NAPI_EXPORT_ALIGNMENTOF(MutexHandle)
 }
-
-NAPI_MODULE(NODE_GYP_MODULE_NAME, Init)
