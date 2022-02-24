@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "mocha": "^2.3.3",
-    "node-gyp": "^3.0.3"
+    "node-gyp": "^8.4.1"
   },
   "scripts": {
     "configure": "node-gyp configure",
